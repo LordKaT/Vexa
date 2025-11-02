@@ -8,6 +8,8 @@ from textual.reactive import reactive
 from textual import events
 import httpx
 import asyncio
+import yaml
+from pathlib import Path
 
 
 class TextAdventureApp(App):
@@ -93,13 +95,55 @@ class TextAdventureApp(App):
         super().__init__()
         self.description_text = ""
         self._suggest_cmds: list[str] = []
-        self.default_prompt_template = Template("User is $USER_NAME. You are $AI_NAME, a female AI created by $USER_NAME. You speak casually and try to be brief. You act slightly flirty with $USER_NAME. You are defensive of $USER_NAME. You are inquisitive but don't offer to help or assist.")
+        
+        # Load configuration
+        self._load_config()
+        
         self.current_prompt_template = self.default_prompt_template
         self.system_prompt = self.default_prompt_template.safe_substitute(USER_NAME=self.user_name, AI_NAME=self.ai_name)
 
         self.conversation = [
             {"role": "system", "content": self.system_prompt}
         ]
+        self.conversation = [
+            {"role": "system", "content": self.system_prompt}
+        ]
+    
+    def _load_config(self):
+        """Load configuration from YAML file."""
+        config_path = Path(__file__).parent / "config" / "default.yaml"
+        
+        # Default fallback values
+        default_prompt = "User is $USER_NAME. You are $AI_NAME, a female AI created by $USER_NAME. You speak casually and try to be brief. You act slightly flirty with $USER_NAME. You are defensive of $USER_NAME. You are inquisitive but don't offer to help or assist."
+        
+        try:
+            if config_path.exists():
+                with open(config_path, 'r') as f:
+                    config = yaml.safe_load(f)
+                
+                # Load names
+                self.ai_name = config.get('ai_name', 'Vexa')
+                self.user_name = config.get('user_name', 'Felicia')
+                
+                # Load system prompt template
+                prompt_text = config.get('system_prompt', default_prompt).strip()
+                self.default_prompt_template = Template(prompt_text)
+                
+                # Load API configuration
+                api_config = config.get('api', {})
+                self.api_url = api_config.get('url', 'http://localhost:7777/v1/chat/completions')
+                self.api_model = api_config.get('model', 'Vexa')
+                self.api_timeout = api_config.get('timeout', 120.0)
+                
+                # Load conversation settings
+                self.max_conversation_length = config.get('max_conversation_length', 100)
+            else:
+                # Use hardcoded defaults if config doesn't exist
+                self.default_prompt_template = Template(default_prompt)
+        except Exception as e:
+            # Fall back to defaults on any error
+            self.default_prompt_template = Template(default_prompt)
+            print(f"Warning: Could not load config: {e}")
 
     def compose(self) -> ComposeResult:
         yield Vertical(
@@ -292,15 +336,16 @@ class TextAdventureApp(App):
 
     async def _ask_ai(self, prompt: str):
         """Send the question to llama.cpp OpenAI-compatible API."""
-        url = "http://localhost:7777/v1/chat/completions"
+        url = getattr(self, 'api_url', 'http://localhost:7777/v1/chat/completions')
         self.conversation.append({"role": "user", "content": prompt})
 
         payload = {
-            "model": "Vexa",  # your model name here
+            "model": getattr(self, 'api_model', 'Vexa'),
             "messages": self.conversation
         }
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            timeout = getattr(self, 'api_timeout', 120.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(url, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
@@ -308,8 +353,9 @@ class TextAdventureApp(App):
                 reply = self._normalize_quotes(reply)
                 self.conversation.append({"role": "assistant", "content": reply})
                 self._update_description(f"[bold]{self.ai_name}:[/bold] {reply}")
-                if len(self.conversation) > 100:
-                    self.conversation = [self.conversation[0]] + self.conversation[-(99):]
+                max_len = getattr(self, 'max_conversation_length', 100)
+                if len(self.conversation) > max_len:
+                    self.conversation = [self.conversation[0]] + self.conversation[-(max_len-1):]
         except Exception as e:
             self._update_description(f"[Error contacting model]\n{e}")
         finally:
