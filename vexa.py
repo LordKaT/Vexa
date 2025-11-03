@@ -13,63 +13,9 @@ import sys
 from pathlib import Path
 
 
-class TextAdventureApp(App):
-    CSS = """
-    Screen { layers: base overlay; }
-    #main-container { layout: vertical; layer: base; }
-    #log-container {
-        width: 100%;
-        height: 1fr; 
-        layout: grid;
-        grid-size: 1 1;
-        layers: base overlay;
-    }
-    #description {
-        layer: base;
-        border: solid blue;
-        width: 100%;
-        height: 1fr;
-        overflow-y: scroll;
-        overflow-x: hidden;
-    }
-    #spinner {
-        layer: overlay;
-        width: auto;
-        height: auto;
-        dock: bottom;
-        align-horizontal: left;
-        padding-left: 0;
-        color: yellow;
-        background: transparent;
-    }
-    #chat-status {
-        layer: overlay;
-        width: auto;
-        height: auto;
-        dock: bottom;
-        align-horizontal: left;
-        offset-x: 1;
-        color: yellow;
-        background: transparent;
-    }
-    .hidden { display: none; }
-    #input-container { width: 100%; height: 1; dock: bottom; }
-    #input { width: 100%; height: 1; border: none; }
-    #suggestions {
-        layer: overlay;
-        dock: bottom;
-        margin-bottom: 1;
-
-        max-height: 8;
-        overflow-y: auto;
-        border: round $accent;
-        background: $panel;
-        color: $text;
-        padding: 0 1;
-    }
-    ListItem.--highlight { background: $accent; color: $text; }
-    .hidden { display: none; }
-    """
+class VexaApp(App):
+    # CSS will be loaded from file
+    CSS = ""
 
     commands = {
         "/help":     "List available commands.",
@@ -93,11 +39,14 @@ class TextAdventureApp(App):
 
     _thinking = False
 
-    def __init__(self, profile: str = "vexa"):
+    def __init__(self, profile: str = "vexa") -> None:
         super().__init__()
         self.description_text = ""
         self._suggest_cmds: list[str] = []
         self.profile = profile
+        
+        # Load CSS from file
+        self._load_css()
         
         # Load configuration
         self._load_config()
@@ -112,9 +61,19 @@ class TextAdventureApp(App):
         self.conversation = [
             {"role": "system", "content": self.system_prompt}
         ]
-        self.conversation = [
-            {"role": "system", "content": self.system_prompt}
-        ]
+    
+    def _load_css(self):
+        """Load CSS from external file."""
+        css_path = Path(__file__).parent / "config" / "textual.css"
+        
+        try:
+            if css_path.exists():
+                with open(css_path, 'r') as f:
+                    self.CSS = f.read()
+            else:
+                print(f"Warning: CSS file not found at {css_path}")
+        except Exception as e:
+            print(f"Warning: Could not load CSS: {e}")
     
     def _load_config(self):
         """Load configuration from split YAML files."""
@@ -211,7 +170,6 @@ class TextAdventureApp(App):
         suggestion_box = self.query_one("#suggestions", ListView)
 
         if text.startswith("/"):
-            #term = text[1:]
             matches = [cmd for cmd in self.commands if text in cmd]
             suggestion_box.clear()
             self._suggest_cmds = []
@@ -364,8 +322,6 @@ class TextAdventureApp(App):
                     pass
                 self.run_worker(self._ask_ai(text.strip()))
 
-    #def _update_description(self, new_text: str):
-    #    self.query_one("#description", Label).update(new_text)
     def _update_description(self, text: str):
         desc = self.query_one("#description", RichLog)
         desc.write(Text.from_markup(f"{text}\n"))
@@ -373,7 +329,11 @@ class TextAdventureApp(App):
 
     # ---------- AI hook ----------
     def _normalize_quotes(self, text: str) -> str:
-        """Replace curly quotes, long dashes, and similar with plain ASCII."""
+        """
+            Replace curly quotes, long dashes, and similar with plain ASCII.
+
+            No, seriously, I hate that models are trained to use these things.
+        """
         replacements = {
             "“": '"', "”": '"', "„": '"', "‟": '"', "❝": '"', "❞": '"',
             "‘": "'", "’": "'", "‚": "'", "‛": "'", "❛": "'", "❜": "'",
@@ -416,4 +376,4 @@ class TextAdventureApp(App):
 
 if __name__ == "__main__":
     profile = sys.argv[1] if len(sys.argv) > 1 else "vexa"
-    TextAdventureApp(profile=profile).run()
+    VexaApp(profile=profile).run()

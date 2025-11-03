@@ -1,0 +1,54 @@
+Screen { layers: base overlay; }
+#main-container { layout: vertical; layer: base; }
+#log-container {
+    width: 100%;
+    height: 1fr; 
+    layout: grid;
+    grid-size: 1 1;
+    layers: base overlay;
+}
+#description {
+    layer: base;
+    border: solid blue;
+    width: 100%;
+    height: 1fr;
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
+#spinner {
+    layer: overlay;
+    width: auto;
+    height: auto;
+    dock: bottom;
+    align-horizontal: left;
+    padding-left: 0;
+    color: yellow;
+    background: transparent;
+}
+#chat-status {
+    layer: overlay;
+    width: auto;
+    height: auto;
+    dock: bottom;
+    align-horizontal: left;
+    offset-x: 1;
+    color: yellow;
+    background: transparent;
+}
+.hidden { display: none; }
+#input-container { width: 100%; height: 1; dock: bottom; }
+#input { width: 100%; height: 1; border: none; }
+#suggestions {
+    layer: overlay;
+    dock: bottom;
+    margin-bottom: 1;
+
+    max-height: 8;
+    overflow-y: auto;
+    border: round $accent;
+    background: $panel;
+    color: $text;
+    padding: 0 1;
+}
+ListItem.--highlight { background: $accent; color: $text; }
+.hidden { display: none; }
