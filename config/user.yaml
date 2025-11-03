@@ -1,0 +1,9 @@
+# User Configuration
+
+user_name: "Felicia Mirabel"
+
+# User description - additional context about the user for the AI
+user_description: |
+  A software developer who enjoys building creative projects.
+  Interested in AI and terminal-based applications.
+  Has a love of the north american opossum.

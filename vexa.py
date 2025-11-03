@@ -9,6 +9,7 @@ from textual import events
 import httpx
 import asyncio
 import yaml
+import sys
 from pathlib import Path
 
 
@@ -86,21 +87,27 @@ class TextAdventureApp(App):
 
     ai_name = "Vexa"
     user_name = "Felicia"
+    user_description = ""
 
     conversation = []
 
     _thinking = False
 
-    def __init__(self):
+    def __init__(self, profile: str = "vexa"):
         super().__init__()
         self.description_text = ""
         self._suggest_cmds: list[str] = []
+        self.profile = profile
         
         # Load configuration
         self._load_config()
         
         self.current_prompt_template = self.default_prompt_template
-        self.system_prompt = self.default_prompt_template.safe_substitute(USER_NAME=self.user_name, AI_NAME=self.ai_name)
+        self.system_prompt = self.default_prompt_template.safe_substitute(
+            USER_NAME=self.user_name, 
+            AI_NAME=self.ai_name,
+            USER_DESCRIPTION=self.user_description
+        )
 
         self.conversation = [
             {"role": "system", "content": self.system_prompt}
@@ -110,38 +117,68 @@ class TextAdventureApp(App):
         ]
     
     def _load_config(self):
-        """Load configuration from YAML file."""
-        config_path = Path(__file__).parent / "config" / "default.yaml"
+        """Load configuration from split YAML files."""
+        config_dir = Path(__file__).parent / "config"
         
         # Default fallback values
         default_prompt = "User is $USER_NAME. You are $AI_NAME, a female AI created by $USER_NAME. You speak casually and try to be brief. You act slightly flirty with $USER_NAME. You are defensive of $USER_NAME. You are inquisitive but don't offer to help or assist."
         
         try:
-            if config_path.exists():
-                with open(config_path, 'r') as f:
-                    config = yaml.safe_load(f)
-                
-                # Load names
-                self.ai_name = config.get('ai_name', 'Vexa')
-                self.user_name = config.get('user_name', 'Felicia')
-                
-                # Load system prompt template
-                prompt_text = config.get('system_prompt', default_prompt).strip()
-                self.default_prompt_template = Template(prompt_text)
-                
-                # Load API configuration
-                api_config = config.get('api', {})
-                self.api_url = api_config.get('url', 'http://localhost:7777/v1/chat/completions')
-                self.api_model = api_config.get('model', 'Vexa')
-                self.api_timeout = api_config.get('timeout', 120.0)
-                
-                # Load conversation settings
-                self.max_conversation_length = config.get('max_conversation_length', 100)
+            # Load user configuration
+            user_config_path = config_dir / "user.yaml"
+            if user_config_path.exists():
+                with open(user_config_path, 'r') as f:
+                    user_config = yaml.safe_load(f)
+                    self.user_name = user_config.get('user_name', 'Felicia')
+                    self.user_description = user_config.get('user_description', '').strip()
             else:
-                # Use hardcoded defaults if config doesn't exist
+                self.user_name = 'Felicia'
+                self.user_description = ''
+            
+            # Load settings configuration
+            settings_config_path = config_dir / "settings.yaml"
+            if settings_config_path.exists():
+                with open(settings_config_path, 'r') as f:
+                    settings_config = yaml.safe_load(f)
+                    
+                    # Load API configuration
+                    api_config = settings_config.get('api', {})
+                    self.api_url = api_config.get('url', 'http://localhost:7777/v1/chat/completions')
+                    self.api_model = api_config.get('model', 'Vexa')
+                    self.api_timeout = api_config.get('timeout', 120.0)
+                    
+                    # Load conversation settings
+                    self.max_conversation_length = settings_config.get('max_conversation_length', 100)
+            else:
+                self.api_url = 'http://localhost:7777/v1/chat/completions'
+                self.api_model = 'Vexa'
+                self.api_timeout = 120.0
+                self.max_conversation_length = 100
+            
+            # Load AI profile configuration
+            profile_path = config_dir / "profiles" / f"{self.profile}.yaml"
+            if profile_path.exists():
+                with open(profile_path, 'r') as f:
+                    profile_config = yaml.safe_load(f)
+                    self.ai_name = profile_config.get('ai_name', 'Vexa')
+                    
+                    # Load system prompt template
+                    prompt_text = profile_config.get('system_prompt', default_prompt).strip()
+                    self.default_prompt_template = Template(prompt_text)
+            else:
+                self.ai_name = 'Vexa'
                 self.default_prompt_template = Template(default_prompt)
+                print(f"Warning: Profile '{self.profile}' not found, using defaults")
+                
         except Exception as e:
             # Fall back to defaults on any error
+            self.user_name = 'Felicia'
+            self.user_description = ''
+            self.ai_name = 'Vexa'
+            self.api_url = 'http://localhost:7777/v1/chat/completions'
+            self.api_model = 'Vexa'
+            self.api_timeout = 120.0
+            self.max_conversation_length = 100
             self.default_prompt_template = Template(default_prompt)
             print(f"Warning: Could not load config: {e}")
 
@@ -273,15 +310,23 @@ class TextAdventureApp(App):
                 self.query_one("#description", RichLog).clear()
                 self._update_description("Conversation cleared.")
             case "/default":
-                self.system_prompt = self.default_prompt_template.safe_substitute(USER_NAME=self.user_name, AI_NAME=self.ai_name)
+                self.system_prompt = self.default_prompt_template.safe_substitute(
+                    USER_NAME=self.user_name, 
+                    AI_NAME=self.ai_name,
+                    USER_DESCRIPTION=self.user_description
+                )
             case "/system":
                 if len(args) > 0:
                     self.current_prompt_template = Template(args.strip())
-                    self.system_prompt = self.current_prompt_template.safe_substitute(USER_NAME=self.user_name, AI_NAME=self.ai_name)
+                    self.system_prompt = self.current_prompt_template.safe_substitute(
+                        USER_NAME=self.user_name, 
+                        AI_NAME=self.ai_name,
+                        USER_DESCRIPTION=self.user_description
+                    )
                     self._update_description(f"[bold]System prompt set:[/bold] {self.current_prompt_template.template}")
                 else:
                     self._update_description(f"[bold]System prompt:[/bold] {self.current_prompt_template.template}")
-                    self._update_description(f"System prompt templates:\n  $USER_NAME - your user name ({self.user_name})\n  $AI_NAME - AI name ({self.ai_name})")
+                    self._update_description(f"System prompt templates:\n  $USER_NAME - your user name ({self.user_name})\n  $AI_NAME - AI name ({self.ai_name})\n  $USER_DESCRIPTION - user description")
                     self._update_description(f"[bold]System prompt:[/bold] {self.system_prompt}")
             case "/echo":
                 if len(args) > 0:
@@ -289,13 +334,21 @@ class TextAdventureApp(App):
             case "/name":
                 if len(args) > 0:
                     self.user_name = args.strip()
-                    self.system_prompt = self.current_prompt_template.safe_substitute(USER_NAME=self.user_name, AI_NAME=self.ai_name)
+                    self.system_prompt = self.current_prompt_template.safe_substitute(
+                        USER_NAME=self.user_name, 
+                        AI_NAME=self.ai_name,
+                        USER_DESCRIPTION=self.user_description
+                    )
                 self._update_description(f"Your name is: [bold]{self.user_name}[/bold]")
                 self.update_status()
             case "/ainame":
                 if len(args) > 0:
                     self.ai_name = args.strip()
-                    self.system_prompt = self.current_prompt_template.safe_substitute(USER_NAME=self.user_name, AI_NAME=self.ai_name)
+                    self.system_prompt = self.current_prompt_template.safe_substitute(
+                        USER_NAME=self.user_name, 
+                        AI_NAME=self.ai_name,
+                        USER_DESCRIPTION=self.user_description
+                    )
                 self._update_description(f"AI name is: [bold]{self.ai_name}[/bold]")
                 self.update_status()
             case _:
@@ -344,7 +397,7 @@ class TextAdventureApp(App):
             "messages": self.conversation
         }
         try:
-            timeout = getattr(self, 'api_timeout', 120.0)
+            timeout = getattr(self, 'api_timeout', 5000.0)
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(url, json=payload)
                 resp.raise_for_status()
@@ -362,4 +415,5 @@ class TextAdventureApp(App):
             self._thinking = False
 
 if __name__ == "__main__":
-    TextAdventureApp().run()
+    profile = sys.argv[1] if len(sys.argv) > 1 else "vexa"
+    TextAdventureApp(profile=profile).run()

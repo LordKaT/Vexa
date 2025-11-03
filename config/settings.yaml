@@ -1,0 +1,10 @@
+# API and Program Settings
+
+# API Configuration
+api:
+  url: "http://localhost:7777/v1/chat/completions"
+  model: "Vexa"
+  timeout: 120.0
+
+# Program Settings
+max_conversation_length: 100
