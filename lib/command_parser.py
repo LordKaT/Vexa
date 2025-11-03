@@ -1,4 +1,5 @@
-from Vexa.lib.vexa_interface import VexaInterface
+from lib.vexa_interface import VexaInterface
+from string import Template
 
 class CommandParser:
     commands = {
@@ -28,7 +29,6 @@ class CommandParser:
         if handler:
             handler(args)
         else:
-            self.app.update_description(f"[bold]{self.app.user_name}:[/bold] {text.strip()}")
             self.app.handle_ai_prompt(text.strip())
     
     def cmd_help(self, args: str = "") -> None:

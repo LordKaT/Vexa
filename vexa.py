@@ -1,3 +1,4 @@
+from lib.command_parser import CommandParser
 
 from rich.text import Text
 from string import Template
@@ -12,31 +13,16 @@ import yaml
 import sys
 from pathlib import Path
 
-
 class VexaApp(App):
-    # CSS will be loaded from file
     CSS = ""
-
-    commands = {
-        "/help":     "List available commands.",
-        "/quit":     "Exit the game.",
-        "/clear":    "Clear the context window.",
-        "/system":   "Set the system prompt (/system <prompt>).",
-        "/echo":     "Write to the output buffer directly",
-        "/name":     "Change your username",
-        "/ainame":   "Change the AI name",
-    }
-
-    selected_index = reactive(0)
-
     system_prompt = ""
-
     ai_name = "Vexa"
     user_name = "Felicia"
     user_description = ""
 
     conversation = []
 
+    selected_index = reactive(0)
     _thinking = False
 
     def __init__(self, profile: str = "vexa") -> None:
@@ -45,10 +31,7 @@ class VexaApp(App):
         self._suggest_cmds: list[str] = []
         self.profile = profile
         
-        # Load CSS from file
         self._load_css()
-        
-        # Load configuration
         self._load_config()
         
         self.current_prompt_template = self.default_prompt_template
@@ -61,9 +44,10 @@ class VexaApp(App):
         self.conversation = [
             {"role": "system", "content": self.system_prompt}
         ]
+
+        self.command_parser = CommandParser(self)
     
     def _load_css(self):
-        """Load CSS from external file."""
         css_path = Path(__file__).parent / "config" / "textual.css"
         
         try:
@@ -76,7 +60,6 @@ class VexaApp(App):
             print(f"Warning: Could not load CSS: {e}")
     
     def _load_config(self):
-        """Load configuration from split YAML files."""
         config_dir = Path(__file__).parent / "config"
         
         # Default fallback values
@@ -158,25 +141,21 @@ class VexaApp(App):
 
     def on_mount(self) -> None:
         self.query_one("#input", Input).focus()
-        self.update_status()
-    
-    def update_status(self) -> None:
-        status_label = self.query_one("#chat-status", Label)
-        status_label.update(f"[yellow]{self.user_name}[/yellow] [white]/[/white] [yellow]{self.ai_name}[/yellow]")
+        self.update_statusbar()
 
-    # ---------- Suggestions ----------
+    # Suggestions box
     def on_input_changed(self, event: Input.Changed):
         text = event.value.strip().lower()
         suggestion_box = self.query_one("#suggestions", ListView)
 
         if text.startswith("/"):
-            matches = [cmd for cmd in self.commands if text in cmd]
+            matches = [cmd for cmd in self.command_parser.commands if text in cmd]
             suggestion_box.clear()
             self._suggest_cmds = []
 
             if matches:
                 for cmd in matches:
-                    suggestion_box.append(ListItem(Label(f"{cmd} — {self.commands[cmd]}")))
+                    suggestion_box.append(ListItem(Label(f"{cmd} — {self.command_parser.commands[cmd]}")))
                 self._suggest_cmds = matches[:]
                 self.selected_index = 0
                 self._update_highlight(suggestion_box)
@@ -205,7 +184,7 @@ class VexaApp(App):
         elif event.key == "enter":
             if 0 <= self.selected_index < len(self._suggest_cmds):
                 selected_cmd = self._suggest_cmds[self.selected_index]
-                self._run_command(selected_cmd)
+                self.command_parser.run(selected_cmd)
                 input_widget = self.query_one("#input", Input)
                 input_widget.value = ""
                 suggestion_box.add_class("hidden")
@@ -219,12 +198,12 @@ class VexaApp(App):
             else:
                 item.remove_class("--highlight")
 
-    # ---------- Submission ----------
+    # Submission
     def on_input_submitted(self, event: Input.Submitted):
         command = event.value.strip()
         if not command:
             return
-        self._run_command(command.strip())
+        self.command_parser.run(command.strip())
         self.query_one("#input", Input).value = ""
         self.query_one("#suggestions", ListView).add_class("hidden")
         self._suggest_cmds = []
@@ -245,89 +224,33 @@ class VexaApp(App):
         spinner_label.update("")
         spinner_label.add_class("hidden")
 
-    # ---------- Game logic ----------
-    def _run_command(self, text: str):
-        parts = text.strip().split(maxsplit=1)
-        if not parts:
-            return
-        
-        cmd = parts[0].lower()
-        args = parts[1] if len(parts) > 1 else ""
-
-        match cmd:
-            case "/help":
-                lines = [f"  [bold cyan]{command}[/bold cyan] - {desc}" for command, desc in self.commands.items()]
-                help_text = "\n".join(lines)
-                self._update_description(f"Available commands:\n{help_text}")
-            case "/quit":
-                self.exit()
-            case "/clear":
-                self.conversation = [
-                    {"role": "system", "content": self.system_prompt}
-                ]
-                self.query_one("#description", RichLog).clear()
-                self._update_description("Conversation cleared.")
-            case "/default":
-                self.system_prompt = self.default_prompt_template.safe_substitute(
-                    USER_NAME=self.user_name, 
-                    AI_NAME=self.ai_name,
-                    USER_DESCRIPTION=self.user_description
-                )
-            case "/system":
-                if len(args) > 0:
-                    self.current_prompt_template = Template(args.strip())
-                    self.system_prompt = self.current_prompt_template.safe_substitute(
-                        USER_NAME=self.user_name, 
-                        AI_NAME=self.ai_name,
-                        USER_DESCRIPTION=self.user_description
-                    )
-                    self._update_description(f"[bold]System prompt set:[/bold] {self.current_prompt_template.template}")
-                else:
-                    self._update_description(f"[bold]System prompt:[/bold] {self.current_prompt_template.template}")
-                    self._update_description(f"System prompt templates:\n  $USER_NAME - your user name ({self.user_name})\n  $AI_NAME - AI name ({self.ai_name})\n  $USER_DESCRIPTION - user description")
-                    self._update_description(f"[bold]System prompt:[/bold] {self.system_prompt}")
-            case "/echo":
-                if len(args) > 0:
-                    self._update_description(text.strip())
-            case "/name":
-                if len(args) > 0:
-                    self.user_name = args.strip()
-                    self.system_prompt = self.current_prompt_template.safe_substitute(
-                        USER_NAME=self.user_name, 
-                        AI_NAME=self.ai_name,
-                        USER_DESCRIPTION=self.user_description
-                    )
-                self._update_description(f"Your name is: [bold]{self.user_name}[/bold]")
-                self.update_status()
-            case "/ainame":
-                if len(args) > 0:
-                    self.ai_name = args.strip()
-                    self.system_prompt = self.current_prompt_template.safe_substitute(
-                        USER_NAME=self.user_name, 
-                        AI_NAME=self.ai_name,
-                        USER_DESCRIPTION=self.user_description
-                    )
-                self._update_description(f"AI name is: [bold]{self.ai_name}[/bold]")
-                self.update_status()
-            case _:
-                if len(text) <= 0:
-                    return
-                self._update_description(f"[bold]{self.user_name}:[/bold] {text.strip()}")
-                self._thinking = True
-                self.run_worker(self._spinner(), exclusive=False)
-                try:
-                    if hasattr(self, "_spinner_worker") and not self._spinner_worker.is_finished:
-                        self._spinner_worker.cancel()
-                except Exception:
-                    pass
-                self.run_worker(self._ask_ai(text.strip()))
-
-    def _update_description(self, text: str):
+    # Interface contract
+    def update_description(self, text: str = "") -> None:
         desc = self.query_one("#description", RichLog)
         desc.write(Text.from_markup(f"{text}\n"))
         desc.scroll_end(animate=False)
+    
+    def update_statusbar(self, text: str = "") -> None:
+        status_label = self.query_one("#chat-status", Label)
+        status_label.update(f"[yellow]{self.user_name}[/yellow] [white]/[/white] [yellow]{self.ai_name}[/yellow]")
+    
+    def clear_conversation(self) -> None:
+        self.conversation = [
+            {"role": "system", "content": self.system_prompt}
+        ]
+        desc = self.query_one("#description", RichLog)
+        desc.clear()
+        desc.write(Text.from_markup(f"[Conversation cleared]\n"))
 
-    # ---------- AI hook ----------
+    def exit_app(self) -> None:
+        sys.exit()
+    
+    def handle_ai_prompt(self, prompt: str = "") -> None:
+        self._thinking = True
+        self.run_worker(self._spinner(), exclusive=False)
+        self.run_worker(self._ask_ai(prompt))
+
+    # AI hooks
     def _normalize_quotes(self, text: str) -> str:
         """
             Replace curly quotes, long dashes, and similar with plain ASCII.
@@ -348,9 +271,10 @@ class VexaApp(App):
         return text
 
     async def _ask_ai(self, prompt: str):
-        """Send the question to llama.cpp OpenAI-compatible API."""
         url = getattr(self, 'api_url', 'http://localhost:7777/v1/chat/completions')
         self.conversation.append({"role": "user", "content": prompt})
+
+        self.update_description(f"[bold]{self.app.user_name}:[/bold] {prompt.strip()}")
 
         payload = {
             "model": getattr(self, 'api_model', 'Vexa'),
@@ -365,12 +289,12 @@ class VexaApp(App):
                 reply = data["choices"][0]["message"]["content"]
                 reply = self._normalize_quotes(reply)
                 self.conversation.append({"role": "assistant", "content": reply})
-                self._update_description(f"[bold]{self.ai_name}:[/bold] {reply}")
+                self.update_description(f"[bold]{self.ai_name}:[/bold] {reply}")
                 max_len = getattr(self, 'max_conversation_length', 100)
                 if len(self.conversation) > max_len:
                     self.conversation = [self.conversation[0]] + self.conversation[-(max_len-1):]
         except Exception as e:
-            self._update_description(f"[Error contacting model]\n{e}")
+            self.update_description(f"[Error contacting model]\n{e}")
         finally:
             self._thinking = False
 
