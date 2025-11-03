@@ -1,4 +1,5 @@
 from lib.command_parser import CommandParser
+from lib.orchestrator import Orchestrator
 
 from rich.text import Text
 from string import Template
@@ -46,6 +47,7 @@ class VexaApp(App):
         ]
 
         self.command_parser = CommandParser(self)
+        self.orchestrator = Orchestrator(self)
     
     def _load_css(self):
         css_path = Path(__file__).parent / "config" / "textual.css"
@@ -248,7 +250,8 @@ class VexaApp(App):
     def handle_ai_prompt(self, prompt: str = "") -> None:
         self._thinking = True
         self.run_worker(self._spinner(), exclusive=False)
-        self.run_worker(self._ask_ai(prompt))
+        self.run_worker(self.orchestrator.process_prompt(prompt))
+        #self.run_worker(self._ask_ai(prompt))
 
     # AI hooks
     def _normalize_quotes(self, text: str) -> str:
@@ -270,7 +273,7 @@ class VexaApp(App):
             text = text.replace(bad, good)
         return text
 
-    async def _ask_ai(self, prompt: str):
+    async def _ask_ai(self, prompt: str) -> str:
         url = getattr(self, 'api_url', 'http://localhost:7777/v1/chat/completions')
         self.conversation.append({"role": "user", "content": prompt})
 
@@ -297,6 +300,35 @@ class VexaApp(App):
             self.update_description(f"[Error contacting model]\n{e}")
         finally:
             self._thinking = False
+            return reply
+        
+    async def _ask_ai_with_context(self, context: list) -> str:
+        url = getattr(self, 'api_url', 'http://localhost:7777/v1/chat/completions')
+
+        self.update_description(f"[bold]{self.app.user_name}:[/bold] {context[-1]['content']}")
+
+        payload = {
+            "model": getattr(self, 'api_model', 'Vexa'),
+            "messages": context
+        }
+        try:
+            timeout = getattr(self, 'api_timeout', 5000.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(url, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                reply = data["choices"][0]["message"]["content"]
+                reply = self._normalize_quotes(reply)
+                self.conversation.append({"role": "assistant", "content": reply})
+                self.update_description(f"[bold]{self.ai_name}:[/bold] {reply}")
+                max_len = getattr(self, 'max_conversation_length', 100)
+                if len(self.conversation) > max_len:
+                    self.conversation = [self.conversation[0]] + self.conversation[-(max_len-1):]
+        except Exception as e:
+            self.update_description(f"[Error contacting model]\n{e}")
+        finally:
+            self._thinking = False
+            return reply
 
 if __name__ == "__main__":
     profile = sys.argv[1] if len(sys.argv) > 1 else "vexa"
